@@ -11,9 +11,9 @@ const moods = [
 ];
 
 const defaultState = {
-  intention: "오늘 가장 중요한 한 가지는 무엇인가요?",
-  outcome: "끝났을 때 얻고 싶은 결과를 적어보세요.",
-  constraint: "방해 요소를 한 줄로 정리해요.",
+  intention: "",
+  outcome: "",
+  constraint: "",
 };
 
 function buildPalette(seed) {
@@ -184,15 +184,27 @@ export default function App() {
             </div>
             <div className="field">
               <label>의도</label>
-              <textarea value={intention} onChange={(e) => setIntention(e.target.value)} />
+              <textarea
+                placeholder="오늘 가장 중요한 한 가지는 무엇인가요?"
+                value={intention}
+                onChange={(e) => setIntention(e.target.value)}
+              />
             </div>
             <div className="field">
               <label>기대 결과</label>
-              <textarea value={outcome} onChange={(e) => setOutcome(e.target.value)} />
+              <textarea
+                placeholder="끝났을 때 얻고 싶은 결과를 적어보세요."
+                value={outcome}
+                onChange={(e) => setOutcome(e.target.value)}
+              />
             </div>
             <div className="field">
               <label>방해 요소</label>
-              <textarea value={constraint} onChange={(e) => setConstraint(e.target.value)} />
+              <textarea
+                placeholder="방해 요소를 한 줄로 정리해요."
+                value={constraint}
+                onChange={(e) => setConstraint(e.target.value)}
+              />
             </div>
           </motion.div>
 
