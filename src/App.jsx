@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Sparkles, Timer, Palette, Check, ArrowRight } from "lucide-react";
 import { clampChroma, formatHex, oklch, parse } from "culori";
@@ -67,6 +67,10 @@ export default function App() {
   const [phase, setPhase] = useState("ready"); // ready | focus | break | done
   const [currentSprint, setCurrentSprint] = useState(1);
   const [remaining, setRemaining] = useState(0);
+  const [focusMode, setFocusMode] = useState(false);
+  const [commitCountdown, setCommitCountdown] = useState(0);
+  const [leaveCount, setLeaveCount] = useState(0);
+  const audioCtxRef = useRef(null);
 
   const palette = useMemo(() => buildPalette(seedColor), [seedColor]);
   const plan = useMemo(() => buildPlan(duration, sprints), [duration, sprints]);
@@ -102,6 +106,9 @@ export default function App() {
       setCurrentSprint((prev) => prev + 1);
       setRemaining(plan.sprintMinutes * 60);
     }
+    if (phase === "focus" || phase === "break") {
+      playChime(phase === "focus" ? "break" : "focus");
+    }
   }, [isRunning, remaining, phase, currentSprint, sprints, plan.breakMinutes, plan.sprintMinutes]);
 
   useEffect(() => {
@@ -111,11 +118,47 @@ export default function App() {
     setRemaining(0);
   }, [duration, sprints, plan.sprintMinutes, plan.breakMinutes]);
 
+  const getAudioContext = () => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioCtxRef.current;
+  };
+
+  const playTone = (frequency, durationMs = 220, type = "sine", gainValue = 0.12) => {
+    const ctx = getAudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = frequency;
+    gain.gain.value = gainValue;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    setTimeout(() => {
+      osc.stop();
+      osc.disconnect();
+      gain.disconnect();
+    }, durationMs);
+  };
+
+  const playChime = (mode) => {
+    if (mode === "focus") {
+      playTone(523.25, 160, "sine", 0.1);
+      setTimeout(() => playTone(659.25, 200, "sine", 0.1), 180);
+    } else {
+      playTone(392.0, 180, "triangle", 0.08);
+      setTimeout(() => playTone(329.63, 220, "triangle", 0.08), 200);
+    }
+  };
+
   const handleStart = () => {
     setPhase("focus");
     setCurrentSprint(1);
     setRemaining(plan.sprintMinutes * 60);
     setIsRunning(true);
+    setFocusMode(true);
+    playChime("focus");
   };
 
   const handlePause = () => setIsRunning(false);
@@ -131,6 +174,8 @@ export default function App() {
     setPhase("ready");
     setCurrentSprint(1);
     setRemaining(0);
+    setFocusMode(false);
+    setCommitCountdown(0);
   };
 
   const formatTime = (seconds) => {
@@ -142,13 +187,67 @@ export default function App() {
   const phaseLabel =
     phase === "focus" ? `스프린트 ${currentSprint} 집중` : phase === "break" ? "리듬 브레이크" : "준비";
 
+  const enterFullscreen = async () => {
+    if (!document.fullscreenElement) {
+      await document.documentElement.requestFullscreen().catch(() => null);
+    }
+  };
+
+  const exitFullscreen = async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => null);
+    }
+  };
+
+  const startCommit = async () => {
+    setCommitCountdown(10);
+    setFocusMode(true);
+    await enterFullscreen();
+  };
+
+  useEffect(() => {
+    if (commitCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setCommitCountdown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [commitCountdown]);
+
+  useEffect(() => {
+    if (commitCountdown === 0 && phase === "ready" && focusMode) {
+      handleStart();
+    }
+  }, [commitCountdown, phase, focusMode]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (!focusMode || phase === "ready") return;
+      if (document.hidden) {
+        setLeaveCount((prev) => prev + 1);
+        playTone(220, 220, "sawtooth", 0.06);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [focusMode, phase]);
+
+  useEffect(() => {
+    const onBeforeUnload = (event) => {
+      if (!focusMode || phase === "ready") return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [focusMode, phase]);
+
   return (
     <div className="page" style={{ "--accent": palette.accent, "--ink": palette.ink }}>
       <div className="glow" style={{ background: `radial-gradient(50% 50% at 20% 20%, ${palette.tones[1]} 0%, transparent 70%)` }} />
       <div className="glow" style={{ background: `radial-gradient(60% 60% at 80% 10%, ${palette.tones[2]} 0%, transparent 72%)` }} />
       <div className="glow" style={{ background: `radial-gradient(55% 55% at 80% 80%, ${palette.tones[3]} 0%, transparent 70%)` }} />
 
-      <main className="shell">
+      <main className={`shell ${focusMode ? "locked" : ""}`}>
         <header className="hero">
           <div className="badge">
             <Sparkles size={16} />
@@ -292,31 +391,31 @@ export default function App() {
               background: `linear-gradient(140deg, ${palette.tones[0]}, ${palette.tones[2]}, ${palette.tones[4]})`,
             }}
           >
-            <div className="preview-header">
-              <div>
-                <h2>{duration}분 집중 루틴</h2>
-                <p>{sprints}개의 스프린트로 에너지를 분배합니다.</p>
+              <div className="preview-header">
+                <div>
+                  <h2>{duration}분 집중 루틴</h2>
+                  <p>{sprints}개의 스프린트로 에너지를 분배합니다.</p>
+                </div>
+                <div className="cta-group">
+                  {phase === "ready" && (
+                    <button className="cta" onClick={startCommit}>
+                      세션 시작
+                      <ArrowRight size={16} />
+                    </button>
+                  )}
+                  {phase !== "ready" && phase !== "done" && (
+                    <button className="cta" onClick={isRunning ? handlePause : handleResume}>
+                      {isRunning ? "일시정지" : "재개"}
+                      <ArrowRight size={16} />
+                    </button>
+                  )}
+                  {phase !== "ready" && (
+                    <button className="cta ghost" onClick={handleReset}>
+                      리셋
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="cta-group">
-                {phase === "ready" && (
-                  <button className="cta" onClick={handleStart}>
-                    세션 시작
-                    <ArrowRight size={16} />
-                  </button>
-                )}
-                {phase !== "ready" && phase !== "done" && (
-                  <button className="cta" onClick={isRunning ? handlePause : handleResume}>
-                    {isRunning ? "일시정지" : "재개"}
-                    <ArrowRight size={16} />
-                  </button>
-                )}
-                {phase !== "ready" && (
-                  <button className="cta ghost" onClick={handleReset}>
-                    리셋
-                  </button>
-                )}
-              </div>
-            </div>
             <div className="session-status">
               <div>
                 <small>현재 단계</small>
@@ -366,13 +465,63 @@ export default function App() {
                 <strong>{ambience}/5</strong>
               </div>
               <div>
-                <small>총 집중</small>
-                <strong>{totalFocusMinutes}분</strong>
+                <small>이탈 횟수</small>
+                <strong>{leaveCount}회</strong>
               </div>
             </div>
           </motion.div>
         </section>
       </main>
+
+      {focusMode && (
+        <div className={`focus-overlay ${phase !== "ready" ? "active" : ""}`}>
+          <div className="focus-panel">
+            <div className="focus-title">집중 모드</div>
+            {commitCountdown > 0 ? (
+              <div className="countdown">
+                <span>약속을 시작합니다</span>
+                <strong>{commitCountdown}</strong>
+                <button className="cta ghost" onClick={handleReset}>
+                  취소
+                </button>
+              </div>
+            ) : (
+              <div className="focus-status">
+                <div>
+                  <small>현재 단계</small>
+                  <strong>{phaseLabel}</strong>
+                </div>
+                <div>
+                  <small>남은 시간</small>
+                  <strong>{remaining > 0 ? formatTime(remaining) : "00:00"}</strong>
+                </div>
+                <div>
+                  <small>이탈 경고</small>
+                  <strong>{leaveCount}회</strong>
+                </div>
+              </div>
+            )}
+            <div className="focus-actions">
+              {phase !== "ready" && phase !== "done" && (
+                <button className="cta" onClick={isRunning ? handlePause : handleResume}>
+                  {isRunning ? "일시정지" : "재개"}
+                  <ArrowRight size={16} />
+                </button>
+              )}
+              {phase !== "ready" && (
+                <button className="cta ghost" onClick={handleReset}>
+                  종료
+                </button>
+              )}
+              {phase === "ready" && (
+                <button className="cta ghost" onClick={handleReset}>
+                  나가기
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
