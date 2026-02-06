@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Sparkles, Timer, Palette, Check, ArrowRight } from "lucide-react";
 import { clampChroma, formatHex, oklch, parse } from "culori";
@@ -63,9 +63,84 @@ export default function App() {
   const [sprints, setSprints] = useState(3);
   const [energy, setEnergy] = useState(3);
   const [ambience, setAmbience] = useState(4);
+  const [isRunning, setIsRunning] = useState(false);
+  const [phase, setPhase] = useState("ready"); // ready | focus | break | done
+  const [currentSprint, setCurrentSprint] = useState(1);
+  const [remaining, setRemaining] = useState(0);
 
   const palette = useMemo(() => buildPalette(seedColor), [seedColor]);
   const plan = useMemo(() => buildPlan(duration, sprints), [duration, sprints]);
+  const totalFocusMinutes = plan.sprintMinutes * sprints;
+  const totalBreakMinutes = plan.breakMinutes * Math.max(0, sprints - 1);
+  const totalMinutes = totalFocusMinutes + totalBreakMinutes + plan.buffer;
+
+  useEffect(() => {
+    if (!isRunning) return;
+    if (remaining <= 0) return;
+
+    const timer = setInterval(() => {
+      setRemaining((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isRunning, remaining]);
+
+  useEffect(() => {
+    if (!isRunning) return;
+    if (remaining > 0) return;
+
+    if (phase === "focus") {
+      if (currentSprint < sprints) {
+        setPhase("break");
+        setRemaining(plan.breakMinutes * 60);
+      } else {
+        setPhase("done");
+        setIsRunning(false);
+      }
+    } else if (phase === "break") {
+      setPhase("focus");
+      setCurrentSprint((prev) => prev + 1);
+      setRemaining(plan.sprintMinutes * 60);
+    }
+  }, [isRunning, remaining, phase, currentSprint, sprints, plan.breakMinutes, plan.sprintMinutes]);
+
+  useEffect(() => {
+    setPhase("ready");
+    setIsRunning(false);
+    setCurrentSprint(1);
+    setRemaining(0);
+  }, [duration, sprints, plan.sprintMinutes, plan.breakMinutes]);
+
+  const handleStart = () => {
+    setPhase("focus");
+    setCurrentSprint(1);
+    setRemaining(plan.sprintMinutes * 60);
+    setIsRunning(true);
+  };
+
+  const handlePause = () => setIsRunning(false);
+  const handleResume = () => {
+    if (phase === "ready" || phase === "done") {
+      handleStart();
+      return;
+    }
+    setIsRunning(true);
+  };
+  const handleReset = () => {
+    setIsRunning(false);
+    setPhase("ready");
+    setCurrentSprint(1);
+    setRemaining(0);
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  };
+
+  const phaseLabel =
+    phase === "focus" ? `스프린트 ${currentSprint} 집중` : phase === "break" ? "리듬 브레이크" : "준비";
 
   return (
     <div className="page" style={{ "--accent": palette.accent, "--ink": palette.ink }}>
@@ -222,23 +297,52 @@ export default function App() {
                 <h2>{duration}분 집중 루틴</h2>
                 <p>{sprints}개의 스프린트로 에너지를 분배합니다.</p>
               </div>
-              <button className="cta">
-                세션 시작
-                <ArrowRight size={16} />
-              </button>
+              <div className="cta-group">
+                {phase === "ready" && (
+                  <button className="cta" onClick={handleStart}>
+                    세션 시작
+                    <ArrowRight size={16} />
+                  </button>
+                )}
+                {phase !== "ready" && phase !== "done" && (
+                  <button className="cta" onClick={isRunning ? handlePause : handleResume}>
+                    {isRunning ? "일시정지" : "재개"}
+                    <ArrowRight size={16} />
+                  </button>
+                )}
+                {phase !== "ready" && (
+                  <button className="cta ghost" onClick={handleReset}>
+                    리셋
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="session-status">
+              <div>
+                <small>현재 단계</small>
+                <strong>{phaseLabel}</strong>
+              </div>
+              <div>
+                <small>남은 시간</small>
+                <strong>{remaining > 0 ? formatTime(remaining) : "00:00"}</strong>
+              </div>
+              <div>
+                <small>총 세션</small>
+                <strong>{totalMinutes}분</strong>
+              </div>
             </div>
             <div className="preview-grid">
               <div className="preview-card">
                 <h3>의도</h3>
-                <p>{intention}</p>
+                <p>{intention || "오늘 가장 중요한 한 가지를 적어보세요."}</p>
               </div>
               <div className="preview-card">
                 <h3>결과</h3>
-                <p>{outcome}</p>
+                <p>{outcome || "세션이 끝났을 때 얻고 싶은 결과를 적어보세요."}</p>
               </div>
               <div className="preview-card">
                 <h3>방해 차단</h3>
-                <p>{constraint}</p>
+                <p>{constraint || "방해 요소를 한 줄로 정리해요."}</p>
               </div>
             </div>
             <div className="timeline">
@@ -262,8 +366,8 @@ export default function App() {
                 <strong>{ambience}/5</strong>
               </div>
               <div>
-                <small>완충 버퍼</small>
-                <strong>{plan.buffer}분</strong>
+                <small>총 집중</small>
+                <strong>{totalFocusMinutes}분</strong>
               </div>
             </div>
           </motion.div>

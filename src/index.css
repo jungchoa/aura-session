@@ -261,10 +261,39 @@ textarea {
   cursor: pointer;
 }
 
+.cta.ghost {
+  background: transparent;
+  color: rgba(21, 21, 30, 0.9);
+  border: 1px solid rgba(21, 21, 30, 0.2);
+}
+
+.cta-group {
+  display: inline-flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .preview-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
+}
+
+.session-status {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.session-status div {
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.session-status strong {
+  display: block;
+  font-size: 1.2rem;
 }
 
 .preview-card {
@@ -334,7 +363,8 @@ textarea {
   }
 
   .plan,
-  .metrics {
+  .metrics,
+  .session-status {
     grid-template-columns: repeat(1, 1fr);
   }
 
